@@ -1,0 +1,24 @@
+{
+  "name": "chatbot-mern-app",
+  "version": "1.0.0",
+  "description": "AI Chatbot with Machine Learning - MERN Stack",
+  "scripts": {
+    "install-all": "npm install --prefix backend && npm install --prefix frontend",
+    "dev": "concurrently \"npm start --prefix backend\" \"npm start --prefix frontend\"",
+    "start-backend": "npm start --prefix backend",
+    "start-frontend": "npm start --prefix frontend",
+    "start": "npm run dev"
+  },
+  "keywords": [
+    "chatbot",
+    "ai",
+    "machine-learning",
+    "mern",
+    "neural-network"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
