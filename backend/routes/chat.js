@@ -6,7 +6,7 @@ const Conversation = require('../models/Conversation');
 
 router.post('/message', async (req, res) => {
   try {
-    const { message, sessionId } = req.body;
+    const { message, sessionId, userId, username } = req.body;
 
     if (!message || !sessionId) {
       return res.status(400).json({ error: 'Message and sessionId required' });
@@ -16,6 +16,8 @@ router.post('/message', async (req, res) => {
 
     const chatHistory = new ChatHistory({
       sessionId,
+      userId: userId || null,
+      username: username || 'Guest',
       userMessage: message,
       botResponse: result.response,
       confidence: result.confidence

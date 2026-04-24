@@ -17,6 +17,9 @@ const ChatMessage = ({ message, onFeedback }) => {
         {isBot ? <FaRobot /> : <FaUser />}
       </div>
       <div className="message-content">
+        {!isBot && message.username && (
+          <div className="message-sender">{message.username}</div>
+        )}
         <div className="message-text">{message.text}</div>
         {isBot && message.confidence && (
           <div className="message-meta">
