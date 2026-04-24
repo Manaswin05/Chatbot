@@ -4,6 +4,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const chatRoutes = require('./routes/chat');
+const authRoutes = require('./routes/auth');
 const chatbotEngine = require('./ml/chatbotEngine');
 const { loadCSVDataset } = require('./utils/loadDataset');
 
@@ -34,6 +35,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 .catch(err => console.error('MongoDB connection error:', err));
 
 app.use('/api/chat', chatRoutes);
+app.use('/api/auth', authRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Chatbot API is running' });

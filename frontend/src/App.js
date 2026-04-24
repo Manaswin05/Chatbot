@@ -3,11 +3,16 @@ import { v4 as uuidv4 } from 'uuid';
 import ChatMessage from './components/ChatMessage';
 import ChatInput from './components/ChatInput';
 import TeachModal from './components/TeachModal';
+import AuthPage from './components/AuthPage';
 import { sendMessage, sendFeedback, teachBot } from './services/api';
-import { FaBrain, FaGraduationCap } from 'react-icons/fa';
+import { FaBrain, FaGraduationCap, FaSignOutAlt, FaUser } from 'react-icons/fa';
 import './App.css';
 
 function App() {
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem('chatbot_user');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sessionId] = useState(() => uuidv4());
@@ -15,33 +20,50 @@ function App() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    setMessages([
-      {
-        id: uuidv4(),
-        sender: 'bot',
-        text: "Hi! I'm an AI chatbot that learns from conversations. Ask me anything!",
-        confidence: 1.0
-      }
-    ]);
-  }, []);
+    if (user) {
+      const displayName = user.username.includes('@')
+        ? user.username.split('@')[0]
+        : user.username;
+      setMessages([
+        {
+          id: uuidv4(),
+          sender: 'bot',
+          text: `Hi ${displayName}! I'm an AI chatbot that learns from conversations. Ask me anything!`,
+          confidence: 1.0
+        }
+      ]);
+    }
+  }, [user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const handleAuthSuccess = (userData) => {
+    localStorage.setItem('chatbot_user', JSON.stringify(userData));
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('chatbot_user');
+    setUser(null);
+    setMessages([]);
+  };
+
   const handleSendMessage = async (text) => {
     const userMessage = {
       id: uuidv4(),
       sender: 'user',
-      text
+      text,
+      username: user?.username || 'Guest'
     };
 
     setMessages(prev => [...prev, userMessage]);
     setLoading(true);
 
     try {
-      const response = await sendMessage(text, sessionId);
-      
+      const response = await sendMessage(text, sessionId, user?.id, user?.username);
+
       const botMessage = {
         id: uuidv4(),
         sender: 'bot',
@@ -87,6 +109,10 @@ function App() {
     }
   };
 
+  if (!user) {
+    return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -94,12 +120,23 @@ function App() {
           <FaBrain className="header-icon" />
           <h1>AI Chatbot</h1>
         </div>
-        <button
-          className="teach-btn"
-          onClick={() => setShowTeachModal(true)}
-        >
-          <FaGraduationCap /> Teach Bot
-        </button>
+        <div className="header-actions">
+          <div className="user-info">
+            <FaUser className="user-icon" />
+            <span className="username-display">
+              {user.username.includes('@') ? user.username.split('@')[0] : user.username}
+            </span>
+          </div>
+          <button
+            className="teach-btn"
+            onClick={() => setShowTeachModal(true)}
+          >
+            <FaGraduationCap /> Teach Bot
+          </button>
+          <button className="logout-btn" onClick={handleLogout} title="Logout">
+            <FaSignOutAlt /> Logout
+          </button>
+        </div>
       </header>
 
       <div className="chat-container">
