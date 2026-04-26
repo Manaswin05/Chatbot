@@ -1,6 +1,6 @@
 const natural = require('natural');
 const stringSimilarity = require('string-similarity');
-// const brain = require('brain.js'); // Commented out due to native dependency issues on Windows
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Conversation = require('../models/Conversation');
 
 class ChatbotEngine {
@@ -8,9 +8,14 @@ class ChatbotEngine {
     this.tokenizer = new natural.WordTokenizer();
     this.tfidf = new natural.TfIdf();
     this.stemmer = natural.PorterStemmer;
-    // this.network = new brain.recurrent.LSTM(); // Commented out - using similarity matching only
     this.trainingData = [];
     this.isTraining = false;
+    
+    // Initialize Gemini if API key exists
+    if (process.env.GEMINI_API_KEY) {
+      this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      this.model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    }
   }
 
   preprocessText(text) {
@@ -30,26 +35,28 @@ class ChatbotEngine {
       this.trainingData = conversations.map(conv => ({
         input: this.preprocessText(conv.question),
         output: conv.answer,
-        confidence: conv.confidence
+        confidence: conv.confidence,
+        id: conv._id
       }));
       
       conversations.forEach(conv => {
         this.tfidf.addDocument(this.preprocessText(conv.question));
       });
 
-      console.log(`Loaded ${this.trainingData.length} conversations`);
+      console.log(`Loaded ${this.trainingData.length} conversations for local context`);
     } catch (error) {
       console.error('Error loading dataset:', error);
     }
   }
 
   async trainNeuralNetwork() {
-    // Neural network training disabled - using similarity matching only
-    console.log('Neural network training skipped (using similarity matching)');
+    console.log('Using Hybrid Engine (Gemini + Local Context)');
     return;
   }
 
   findBestMatch(userInput) {
+    if (this.trainingData.length === 0) return null;
+
     const processedInput = this.preprocessText(userInput);
     const inputTokens = this.tokenizeAndStem(userInput);
     
@@ -67,7 +74,7 @@ class ChatbotEngine {
         dataTokens.includes(token)
       ).length;
       
-      const tokenScore = commonTokens / Math.max(inputTokens.length, dataTokens.length);
+      const tokenScore = commonTokens / Math.max(inputTokens.length, dataTokens.length || 1);
       const finalScore = (similarity * 0.7) + (tokenScore * 0.3);
 
       if (finalScore > highestScore) {
@@ -75,6 +82,7 @@ class ChatbotEngine {
         bestMatch = {
           answer: data.output,
           confidence: finalScore,
+          id: data.id,
           index: index
         };
       }
@@ -83,58 +91,91 @@ class ChatbotEngine {
     return bestMatch;
   }
 
+  async getGeminiResponse(userInput) {
+    if (!this.model) return null;
+
+    try {
+      const prompt = `You are "GotChat", a highly intelligent, premium, and friendly AI assistant. 
+      The user says: "${userInput}"
+      Provide a concise, helpful, and engaging response. Keep your personality consistent: sophisticated yet approachable.`;
+
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Gemini API Error:', error);
+      return null;
+    }
+  }
+
   async getResponse(userInput) {
+    // 1. Try local exact/high-confidence match first (for specific commands or FAQ)
     const match = this.findBestMatch(userInput);
 
-    if (match && match.confidence > 0.6) {
-      await this.updateUsageStats(match.index);
+    if (match && match.confidence > 0.85) {
+      await this.updateUsageStats(match.id);
       return {
         response: match.answer,
         confidence: match.confidence,
-        method: 'similarity'
+        method: 'local_high'
       };
     }
 
-    // Neural network disabled - using similarity matching only
-    // Lower threshold for fallback
+    // 2. Try Gemini for natural conversation
+    if (this.model) {
+      const geminiResponse = await this.getGeminiResponse(userInput);
+      if (geminiResponse) {
+        return {
+          response: geminiResponse,
+          confidence: 0.98,
+          method: 'gemini'
+        };
+      }
+    }
+
+    // 3. Fallback to local similarity if Gemini fails or is unavailable
     if (match && match.confidence > 0.4) {
-      await this.updateUsageStats(match.index);
+      await this.updateUsageStats(match.id);
       return {
         response: match.answer,
         confidence: match.confidence,
-        method: 'similarity_low'
+        method: 'local_fallback'
       };
     }
 
     return {
-      response: "I'm still learning! Could you rephrase that or teach me how to respond?",
+      response: "I'm still learning! My current systems are having trouble with that. Could you try asking something else?",
       confidence: 0.3,
       method: 'fallback'
     };
   }
 
-  async updateUsageStats(index) {
-    if (this.trainingData[index]) {
-      const question = this.trainingData[index].input;
-      await Conversation.findOneAndUpdate(
-        { question: new RegExp(question, 'i') },
-        { $inc: { usageCount: 1 } }
-      );
+  async updateUsageStats(id) {
+    try {
+      await Conversation.findByIdAndUpdate(id, { $inc: { usageCount: 1 } });
+    } catch (error) {
+      console.error('Error updating usage stats:', error);
     }
   }
 
   async learnFromFeedback(userInput, botResponse, feedback) {
     try {
-      if (feedback === 'positive') {
-        await Conversation.findOneAndUpdate(
-          { answer: botResponse },
-          { $inc: { confidence: 0.1, userFeedback: 1 } }
-        );
-      } else if (feedback === 'negative') {
-        await Conversation.findOneAndUpdate(
-          { answer: botResponse },
-          { $inc: { confidence: -0.05, userFeedback: -1 } }
-        );
+      // Find the document that generated this response
+      let doc = await Conversation.findOne({ answer: botResponse });
+      
+      if (doc) {
+        const confidenceDelta = feedback === 'positive' ? 0.05 : -0.1;
+        const feedbackDelta = feedback === 'positive' ? 1 : -1;
+        
+        await Conversation.findByIdAndUpdate(doc._id, {
+          $inc: { 
+            confidence: confidenceDelta,
+            userFeedback: feedbackDelta
+          }
+        });
+      } else if (feedback === 'positive') {
+        // If it was a Gemini response and user liked it, we might want to store it locally
+        await this.addNewConversation(userInput, botResponse);
       }
       
       await this.loadDataset();
@@ -146,9 +187,10 @@ class ChatbotEngine {
   async addNewConversation(question, answer) {
     try {
       const newConv = new Conversation({
-        question: this.preprocessText(question),
+        question: question, // Keep original casing for storage
         answer: answer,
-        confidence: 0.8
+        confidence: 0.8,
+        usageCount: 1
       });
       
       await newConv.save();
@@ -163,3 +205,4 @@ class ChatbotEngine {
 }
 
 module.exports = new ChatbotEngine();
+

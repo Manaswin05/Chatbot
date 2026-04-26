@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import ChatMessage from './components/ChatMessage';
 import ChatInput from './components/ChatInput';
@@ -11,8 +11,13 @@ import './App.css';
 function App() {
   const [user, setUser] = useState(() => {
     const saved = localStorage.getItem('chatbot_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
   });
+
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sessionId] = useState(() => uuidv4());
@@ -20,23 +25,25 @@ function App() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    if (user) {
-      const displayName = user.username.includes('@')
-        ? user.username.split('@')[0]
-        : user.username;
+    if (user && messages.length === 0) {
+      const name = user?.username || 'User';
+      const displayName = name.includes('@') ? name.split('@')[0] : name;
+      
       setMessages([
         {
           id: uuidv4(),
           sender: 'bot',
-          text: `Hi ${displayName}! I'm an AI chatbot that learns from conversations. Ask me anything!`,
+          text: `Welcome back, ${displayName}! How can I help you today?`,
           confidence: 1.0
         }
       ]);
     }
-  }, [user]);
+  }, [user, messages.length]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const handleAuthSuccess = (userData) => {
@@ -44,17 +51,19 @@ function App() {
     setUser(userData);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('chatbot_user');
     setUser(null);
     setMessages([]);
-  };
+  }, []);
 
   const handleSendMessage = async (text) => {
+    if (!text || !text.trim()) return;
+
     const userMessage = {
       id: uuidv4(),
       sender: 'user',
-      text,
+      text: text.trim(),
       username: user?.username || 'Guest'
     };
 
@@ -62,14 +71,14 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await sendMessage(text, sessionId, user?.id, user?.username);
+      const response = await sendMessage(text.trim(), sessionId, user?.id, user?.username);
 
       const botMessage = {
         id: uuidv4(),
         sender: 'bot',
-        text: response.response,
-        confidence: response.confidence,
-        userInput: text
+        text: response?.response || "I couldn't quite get that.",
+        confidence: response?.confidence || 0,
+        userInput: text.trim()
       };
 
       setMessages(prev => [...prev, botMessage]);
@@ -77,7 +86,7 @@ function App() {
       const errorMessage = {
         id: uuidv4(),
         sender: 'bot',
-        text: "Sorry, I'm having trouble connecting. Please try again.",
+        text: "Connection issue. Please try again.",
         confidence: 0
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -100,7 +109,7 @@ function App() {
       const successMessage = {
         id: uuidv4(),
         sender: 'bot',
-        text: "Thanks for teaching me! I'll remember that.",
+        text: "Thanks! I've learned that now.",
         confidence: 1.0
       };
       setMessages(prev => [...prev, successMessage]);
@@ -113,57 +122,65 @@ function App() {
     return <AuthPage onAuthSuccess={handleAuthSuccess} />;
   }
 
+  const name = user?.username || 'User';
+  const displayName = name.includes('@') ? name.split('@')[0] : name;
+
   return (
     <div className="app">
       <header className="app-header">
-        <div className="header-content">
-          <FaBrain className="header-icon" />
-          <h1>AI Chatbot</h1>
-        </div>
-        <div className="header-actions">
-          <div className="user-info">
-            <FaUser className="user-icon" />
-            <span className="username-display">
-              {user.username.includes('@') ? user.username.split('@')[0] : user.username}
-            </span>
+        <div className="header-container">
+          <div className="header-content">
+            <FaBrain className="header-icon" />
+            <h1>GotChat</h1>
           </div>
-          <button
-            className="teach-btn"
-            onClick={() => setShowTeachModal(true)}
-          >
-            <FaGraduationCap /> Teach Bot
-          </button>
-          <button className="logout-btn" onClick={handleLogout} title="Logout">
-            <FaSignOutAlt /> Logout
-          </button>
+          
+          <div className="header-actions">
+            <div className="user-info">
+              <FaUser className="user-icon" />
+              <span className="username-display">{displayName}</span>
+            </div>
+            
+            <button
+              className="teach-btn"
+              onClick={() => setShowTeachModal(true)}
+            >
+              <FaGraduationCap /> <span>Teach</span>
+            </button>
+            
+            <button className="logout-btn" onClick={handleLogout} title="Logout">
+              <FaSignOutAlt />
+            </button>
+          </div>
         </div>
       </header>
 
-      <div className="chat-container">
-        <div className="messages-container">
-          {messages.map((message) => (
-            <ChatMessage
-              key={message.id}
-              message={message}
-              onFeedback={
-                message.sender === 'bot' && message.userInput
-                  ? (feedback) => handleFeedback(message.id, feedback, message.userInput, message.text)
-                  : null
-              }
-            />
-          ))}
-          {loading && (
-            <div className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+      <main className="chat-main">
+        <div className="chat-container">
+          <div className="messages-container">
+            {messages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                onFeedback={
+                  message.sender === 'bot' && message.userInput
+                    ? (feedback) => handleFeedback(message.id, feedback, message.userInput, message.text)
+                    : null
+                }
+              />
+            ))}
+            {loading && (
+              <div className="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
 
-        <ChatInput onSend={handleSendMessage} disabled={loading} />
-      </div>
+          <ChatInput onSend={handleSendMessage} disabled={loading} />
+        </div>
+      </main>
 
       <TeachModal
         isOpen={showTeachModal}
@@ -175,3 +192,5 @@ function App() {
 }
 
 export default App;
+
+
