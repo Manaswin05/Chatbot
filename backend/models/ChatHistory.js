@@ -23,6 +23,19 @@ const chatHistorySchema = new mongoose.Schema({
     required: true
   },
   confidence: Number,
+  sentiment: {
+    type: String,
+    enum: ['positive', 'negative', 'neutral'],
+    default: 'neutral'
+  },
+  sentimentScore: {
+    type: Number,
+    default: 0
+  },
+  sentimentConfidence: {
+    type: Number,
+    default: 0
+  },
   feedback: {
     type: String,
     enum: ['positive', 'negative', null],

@@ -35,3 +35,7 @@ coverage/
 
 # Misc
 .cache/
+
+# Documents
+*.docx
+*.doc
