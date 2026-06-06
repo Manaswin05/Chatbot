@@ -91,13 +91,31 @@ class ChatbotEngine {
     return bestMatch;
   }
 
-  async getGeminiResponse(userInput) {
+  async getGeminiResponse(userInput, context = {}) {
     if (!this.model) return null;
 
     try {
+      const { sentiment } = context;
+      
+      // Build a more sophisticated prompt based on context
+      let personalityNote = '';
+      if (sentiment === 'negative') {
+        personalityNote = 'The user seems frustrated or upset. Be extra empathetic and helpful.';
+      } else if (sentiment === 'positive') {
+        personalityNote = 'The user seems happy or satisfied. Match their positive energy.';
+      }
+
       const prompt = `You are "GotChat", a highly intelligent, premium, and friendly AI assistant. 
-      The user says: "${userInput}"
-      Provide a concise, helpful, and engaging response. Keep your personality consistent: sophisticated yet approachable.`;
+${personalityNote}
+
+The user says: "${userInput}"
+
+Provide a concise, helpful, and engaging response. Keep your personality consistent: sophisticated yet approachable.
+- Be conversational and natural
+- Show personality but stay professional
+- Keep responses clear and well-structured
+- If asked about capabilities, mention you can help with conversations, answer questions, provide information, and learn from interactions
+- Avoid being overly verbose - aim for quality over quantity`;
 
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
@@ -108,14 +126,14 @@ class ChatbotEngine {
     }
   }
 
-  async getResponse(userInput) {
+  async getResponse(userInput, context = {}) {
     // 1. Try local exact/high-confidence match first (for specific commands or FAQ)
     const match = this.findBestMatch(userInput);
 
     if (match && match.confidence > 0.85) {
       await this.updateUsageStats(match.id);
       return {
-        response: match.answer,
+        response: this.enhanceResponse(match.answer, userInput),
         confidence: match.confidence,
         method: 'local_high'
       };
@@ -123,7 +141,7 @@ class ChatbotEngine {
 
     // 2. Try Gemini for natural conversation
     if (this.model) {
-      const geminiResponse = await this.getGeminiResponse(userInput);
+      const geminiResponse = await this.getGeminiResponse(userInput, context);
       if (geminiResponse) {
         return {
           response: geminiResponse,
@@ -137,14 +155,14 @@ class ChatbotEngine {
     if (match && match.confidence > 0.4) {
       await this.updateUsageStats(match.id);
       return {
-        response: match.answer,
+        response: this.enhanceResponse(match.answer, userInput),
         confidence: match.confidence,
         method: 'local_fallback'
       };
     }
 
     return {
-      response: "I'm still learning! My current systems are having trouble with that. Could you try asking something else?",
+      response: this.getFallbackResponse(userInput),
       confidence: 0.3,
       method: 'fallback'
     };
@@ -156,6 +174,42 @@ class ChatbotEngine {
     } catch (error) {
       console.error('Error updating usage stats:', error);
     }
+  }
+
+  enhanceResponse(baseResponse, userInput) {
+    // Add variety to responses to make them feel more natural
+    const variations = {
+      'hello': ['Hello!', 'Hi there!', 'Hey!', 'Greetings!'],
+      'thanks': ['You\'re welcome!', 'Happy to help!', 'Anytime!', 'My pleasure!'],
+      'bye': ['Goodbye!', 'See you later!', 'Take care!', 'Bye!']
+    };
+
+    const lowerInput = userInput.toLowerCase();
+    
+    // Check for common patterns and add variation
+    for (const [pattern, responses] of Object.entries(variations)) {
+      if (lowerInput.includes(pattern) && baseResponse.length < 50) {
+        const random = responses[Math.floor(Math.random() * responses.length)];
+        if (baseResponse !== random) {
+          return baseResponse;
+        }
+      }
+    }
+
+    return baseResponse;
+  }
+
+  getFallbackResponse(userInput) {
+    const fallbackResponses = [
+      "I'm still learning about that topic. Could you rephrase your question or ask me something else?",
+      "That's an interesting question! I don't have enough information about that yet. Can you try asking in a different way?",
+      "I'm not quite sure how to respond to that at the moment. My knowledge is still growing! What else can I help you with?",
+      "Hmm, I'm having trouble understanding that. Could you provide more details or ask something else?",
+      "I don't have a good answer for that right now, but I'm always learning! Feel free to teach me or try a different question."
+    ];
+
+    // Pick a random fallback to add variety
+    return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
   }
 
   async learnFromFeedback(userInput, botResponse, feedback) {
